@@ -1,0 +1,112 @@
+自然语言处理简介
+自然语言处理，顾名思义，就是使用计算机对语言文字进行处理的相关技术以及应用。
+
+Natural language processing (NLP) is a field of computer science, artificial intelligence and computational linguistics concerned with the interactions between computers and human (natural) languages, and, in particular, concerned with programming computers to fruitfully process large natural language corpora.
+
+早在20世纪50年代，自然语言处理就被提起，但直到20世纪80年代前，自然语言处理的系统大多仅支持有限的词汇并需要大量的人工编写的规则。到了80年代，机器计算能力的飞速提升以及机器学习算法的出现，为自然语言处理领域带来了变革。隐马可夫模型的使用，以及越来越多的基于统计模型的研究，使得系统拥有了更强的对未知输入的处理能力。如今，研究更多的集中于无监督学习或者语义监督学习，比较成功的便是自动翻译系统。近几年，大数据时代的到来，以及深度学习算法的广泛应用，又为自然语言处理带来了新的突破。
+
+在nlp工程中，文本预处理的流程通常包含以下步骤：获取原始文本、分词、文本清洗、标准化、特征提取、建模等。下面我们会分步骤，分别对每一个步骤的常用方法和常用库进行介绍。
+
+
+1.文本获取
+既然如今主流研究使用机器学习或者统计模型的技术，那么一个首要问题就是，如何获取大量的数据？无论是统计还是机器学习，其准确率都建立在样本的好坏上，样本空间是否足够大，样本分布是否足够均匀，这些都将影响算法的最终结果。
+获取语料库，一个方法就是去网络上寻找一些第三方提供的语料库，出名的开放语料库比如wiki。但事实上，很多情况中所研究或开发的系统往往是应用于某种特定的领域，这些开放语料库经常无法满足我们的需求。这种时候就需要使用另一种方法，使用爬虫去主动的获取想要的信息。可以使用如pyspider、scrapy等python框架非常轻松地编写出自己需要的爬虫，从而让机器自动地去获取大量数据，从而继续我们的研究。
+
+2.分词
+中英文在分词上，由于语言的特殊性导致分词的思路也会不一样。大多数情况下，英文直接使用空格就可以进行分词,例如：
+
+s = 'Introduction to common techniques of text preprocessing'
+s.split(' ')
+1
+2
+
+但是在中文上，由于语法更为复杂，我们通常会使用jieba等第三方库进行分词的操作,例如:
+
+import jieba
+s = '文本预处理常用技术介绍' 
+', '.join(jieba.cut(s))
+1
+2
+3
+
+还有些时候，可能我们需要处理某些垂直领域的文本，例如医疗、法律等领域，我们可能需要更垂直的词库。这时候，我们可以考虑第三方词库，例如清华大学开源词库或者其他人分享的开源词库等。这时候我们可能需要自己设计分词的算法，具体方法可参考我之前的文章《分词工具的实现》。
+
+3.文本清洗
+由于大多数情况下，我们准备好的文本里都有很多无用的部分，例如爬取来的一些html代码，css标签等。或者我们去除不需要用的标点符号、停用词等，我们需要分步骤去清洗。下面是一些常用的清洗方法：
+
+去除标点符号
+s = ''.join(c for c in word if c not in string.punctuation)
+1
+英文转换为小写
+s.lower()
+1
+数字归一化
+s = '#number' if s.isdigit() else s
+1
+停用词库/低频词库
+停用词库：我们可以直接在搜索引擎上搜索“停用词库”或“english stop words list”，能找到很多停用词库。例如：
+
+stop_words = ["a","able","about","across","after","all","almost","also","am","among","an","and","any","are","as","at","be","because","been","but","by","can","cannot","could","dear","did","do","does","either","else","ever","every","for","from","get","got","had","has","have","he","her","hers","him","his","how","however","i","if","in","into","is","it","its","just","least","let","like","likely","may","me","might","most","must","my","neither","no","nor","not","of","off","often","on","only","or","other","our","own","rather","said","say","says","she","should","since","so","some","than","that","the","their","them","then","there","these","they","this","tis","to","too","twas","us","wants","was","we","were","what","when","where","which","while","who","whom","why","will","with","would","yet","you","your","ain't","aren't","can't","could've","couldn't","didn't","doesn't","don't","hasn't","he'd","he'll","he's","how'd","how'll","how's","i'd","i'll","i'm","i've","isn't","it's","might've","mightn't","must've","mustn't","shan't","she'd","she'll","she's","should've","shouldn't","that'll","that's","there's","they'd","they'll","they're","they've","wasn't","we'd","we'll","we're","weren't","what'd","what's","when'd","when'll","when's","where'd","where'll","where's","who'd","who'll","who's","why'd","why'll","why's","won't","would've","wouldn't","you'd","you'll","you're","you've"]
+1
+低频次库：我们可以使用Counter等库获取所有句子中所有词的词频，通过筛选词频获得低频词库。例如:
+
+from collections import Counter
+# 获取词典
+word_dict = Counter(sentence_list)
+# 建立低频词库
+low_frequency_words = []
+low_frequency_words.append([k for (k,v) in  word_dict.items() if v <2])
+1
+2
+3
+4
+5
+6
+获取停用词库和低频词库后，将词库中的词语删除
+
+if s not in stop_words and s not in low_frequency_words:
+    sentence += s
+1
+2
+去除不必要的标签
+这一块在实际工作中需要灵活的使用，例如使用re库对文本做正则删除、替换，利用json库去解析json数据，又或者使用规则对文本进行相应的处理。
+
+4.标准化
+通常我们需要用到词形还原(Lemmatization)和词干提取(Stemming)
+首先来看一下两者的区别
+Stemming：
+
+from nltk.stem.porter import PorterStemmer
+porter_stemmer = PorterStemmer()
+porter_stemmer.stem('wolves')
+1
+2
+3
+打印结果: ‘wolv’
+
+Lemmatization:
+
+from nltk.stem import WordNetLemmatizer
+lemmatizer = WordNetLemmatizer()
+lemmatizer.lemmatize('wolves')
+1
+2
+3
+打印结果: ‘wolf’
+
+在原理上，词干提取主要是采用“缩减”的方法，将词转换为词干，如将“cats”处理为“cat”，将“effective”处理为“effect”。而词形还原主要采用“转变”的方法，将词转变为其原形，如将“drove”处理为“drive”，将“driving”处理为“drive”。
+在复杂性上，词干提取方法相对简单，词形还原则需要返回词的原形，需要对词形进行分析，不仅要进行词缀的转化，还要进行词性识别，区分相同词形但原形不同的词的差别。词性标注的准确率也直接影响词形还原的准确率，因此，词形还原更为复杂。
+在结果上，词干提取和词形还原也有部分区别。词干提取的结果可能并不是完整的、具有意义的词，而只是词的一部分，如“revival”词干提取的结果为“reviv”，“ailiner”词干提取的结果为“airlin”。而经词形还原处理后获得的结果是具有一定意义的、完整的词，一般为词典中的有效词。
+在应用领域上，同样各有侧重。虽然二者均被应用于信息检索和文本处理中，但侧重不同。词干提取更多被应用于信息检索领域，如Solr、Lucene等，用于扩展检索，粒度较粗。词形还原更主要被应用于文本挖掘、自然语言处理，用于更细粒度、更为准确的文本分析和表达，所以我们要根据实际使用场景去选择我们的标准化方法。
+5.特征提取
+通常会采用TF-IDF、Word2Vec、CountVectorizer等方式实现对文本特征的提取。在这里只简单讲解一下几个方法的概念，之后会在其他文章中详细讲解几种方法的区别。
+
+TF-IDF
+词语由t表示，文档由d表示，语料库由D表示。词频TF(t,d)是词语t在文档d中出现的次数。文件频率DF(t,D)是包含词语的文档的个数。如果我们只使用词频来衡量重要性，很容易过度强调在文档中经常出现而并没有包含太多与文档有关的信息的词语，比如“a”，“the”以及“of”。如果一个词语经常出现在语料库中，它意味着它并没有携带特定的文档的特殊信息。
+
+Word2Vec
+Word2vec是一个Estimator，它采用一系列代表文档的词语来训练word2vecmodel。该模型将每个词语映射到一个固定大小的向量。word2vecmodel使用文档中每个词语的平均数来将文档转换为向量，然后这个向量可以作为预测的特征，来计算文档相似度计算等等。
+
+Countvectorizer
+Countvectorizer和Countvectorizermodel旨在通过计数来将一个文档转换为向量。当不存在先验字典时，Countvectorizer可作为Estimator来提取词汇，并生成一个Countvectorizermodel。该模型产生文档关于词语的稀疏表示，其表示可以传递给其他算法如LDA。
+© 2020 GitHub, Inc.
