@@ -1,0 +1,446 @@
+批量归一化
+对于浅层模型：
+对输入进行标准化处理，使得各个特征的分布相近，任意一个特征在数据集中所有样本上的均值为0、标准差为1
+
+对于深度模型：
+提出批量归一化，利用小批量的均值和标准差，不断调整网络中间输出，使得网络各层的输出数值更稳定
+
+1. 对全连接层做BatchNormalization：
+x=Wu+boutput=ϕ(x)\boldsymbol{x} = \boldsymbol{W\boldsymbol{u} + \boldsymbol{b}} \\output =\phi(\boldsymbol{x})
+x=Wu+b
+output=ϕ(x)
+
+输入u的大小是batch size 乘以 输入神经元的个数，输出x的大小是batch size 乘以 输出神经元的个数，经过激活函数之后output的size是与x相同. 而我们要做的批量归一化就是在两个式子中间，即全连接层中的仿射变换和激活函数之间。就是对x做标准化
+output=ϕ(BN(x))output=\phi(\text{BN}(\boldsymbol{x}))
+output=ϕ(BN(x))
+
+y(i)=BN(x(i))\boldsymbol{y}^{(i)} = \text{BN}(\boldsymbol{x}^{(i)})
+y 
+(i)
+ =BN(x 
+(i)
+ )
+
+μB←1m∑mi=1x(i),\boldsymbol{\mu}_\mathcal{B} \leftarrow \frac{1}{m}\sum_{i = 1}^{m} \boldsymbol{x}^{(i)},
+μ 
+B
+​	
+ ← 
+m
+1
+​	
+  
+i=1
+∑
+m
+​	
+ x 
+(i)
+ ,
+
+σ2B←1m∑mi=1(x(i)−μB)2,\boldsymbol{\sigma}_\mathcal{B}^2 \leftarrow \frac{1}{m} \sum_{i=1}^{m}(\boldsymbol{x}^{(i)} - \boldsymbol{\mu}_\mathcal{B})^2,
+σ 
+B
+2
+​	
+ ← 
+m
+1
+​	
+  
+i=1
+∑
+m
+​	
+ (x 
+(i)
+ −μ 
+B
+​	
+ ) 
+2
+ ,
+
+xˆ(i)←x(i)−μBσ2B+ϵ√,\hat{\boldsymbol{x}}^{(i)} \leftarrow \frac{\boldsymbol{x}^{(i)} - \boldsymbol{\mu}_\mathcal{B}}{\sqrt{\boldsymbol{\sigma}_\mathcal{B}^2 + \epsilon}},
+x
+^
+  
+(i)
+ ← 
+σ 
+B
+2
+​	
+ +ϵ
+​	
+ 
+x 
+(i)
+ −μ 
+B
+​	
+ 
+​	
+ ,
+
+首先求出对应的每个x(i)x^(i)x 
+(
+ i)的均值μ\muμ，m是batch size，而方差是σ2\sigma^2σ 
+2
+ ，最后使用标准化公式更新出xˆ(i)\hat{\boldsymbol{x}}^{(i)} 
+x
+^
+  
+(i)
+ . 这是Z-score Normalization公式，不过这里加多了一个ϵ\epsilonϵ，是个很小的常数，保证分母大于0.
+y(i)←γ⊙xˆ(i)+β.{\boldsymbol{y}}^{(i)} \leftarrow \boldsymbol{\gamma} \odot\hat{\boldsymbol{x}}^{(i)} + \boldsymbol{\beta}.
+y 
+(i)
+ ←γ⊙ 
+x
+^
+  
+(i)
+ +β.
+
+我们还引入了两个新的学习参数，拉伸参数γ和偏移参数β。在训练中，这两个参数会进行学习，若γ=σ2B+ϵ−−−−−−√\boldsymbol{\gamma} = \sqrt{\boldsymbol{\sigma}_\mathcal{B}^2 + \epsilon}γ= 
+σ 
+B
+2
+​	
+ +ϵ
+​	
+ 和β=μB\boldsymbol{\beta} = \boldsymbol{\mu}_\mathcal{B}β=μ 
+B
+​	
+ ，批量归一化无效。
+它们的作用是，如果批量归一化之后反而效果不好，可以通过学习的这两个参数进行归一化的无效化
+
+2. 对卷积层做批量归一化
+位置：卷积计算之后、应用激活函数之前。
+卷积层输出的维度：样本数x通道数x卷积后的高x卷积后的宽 = mxcxpxq
+如果卷积计算输出多个通道，我们需要对这些通道的输出分别做批量归一化，且每个通道都拥有独立的拉伸和偏移参数。
+计算：对单通道，batchsize=m,卷积计算输出=pxq
+对该通道中m×p×q个元素同时做批量归一化,使用相同的均值和方差。
+
+3. 预测时的批量归一化
+训练：以batch为单位,对每个batch计算均值和方差。
+预测：用移动平均估算整个训练数据集的样本均值和方差。
+因为预测的时候是没有均值和方差做参考的，只能使用移动平均法来估算
+
+使用传入的移动平均：
+
+   X_hat = (X - moving_mean) / torch.sqrt(moving_var + eps)
+1
+代码实现：
+import time
+import torch
+from torch import nn, optim
+import torch.nn.functional as F
+import torchvision
+import sys
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#用于做归一化
+def batch_norm(is_training, X, gamma, beta, moving_mean, moving_var, eps, momentum):
+    # 判断当前模式是训练模式还是预测模式
+    if not is_training:
+        # 如果是在预测模式下，直接使用传入的移动平均所得的均值和方差
+        X_hat = (X - moving_mean) / torch.sqrt(moving_var + eps)
+    else:
+        assert len(X.shape) in (2, 4)
+        if len(X.shape) == 2:
+            # 使用全连接层的情况，计算特征维上的均值和方差
+            mean = X.mean(dim=0)
+            var = ((X - mean) ** 2).mean(dim=0)
+        else:
+            # 使用二维卷积层的情况，计算通道维上（axis=1）的均值和方差。这里我们需要保持
+            # X的形状以便后面可以做广播运算
+            mean = X.mean(dim=0, keepdim=True).mean(dim=2, keepdim=True).mean(dim=3, keepdim=True)
+            var = ((X - mean) ** 2).mean(dim=0, keepdim=True).mean(dim=2, keepdim=True).mean(dim=3, keepdim=True)
+        # 训练模式下用当前的均值和方差做标准化
+        X_hat = (X - mean) / torch.sqrt(var + eps)
+        # 更新移动平均的均值和方差
+        moving_mean = momentum * moving_mean + (1.0 - momentum) * mean
+        moving_var = momentum * moving_var + (1.0 - momentum) * var
+    Y = gamma * X_hat + beta  # 拉伸和偏移
+    return Y, moving_mean, moving_var
+
+#做参数的初始化
+class BatchNorm(nn.Module):
+    def __init__(self, num_features, num_dims):
+        super(BatchNorm, self).__init__()
+        if num_dims == 2:
+            shape = (1, num_features) #全连接层输出神经元
+        else:
+            shape = (1, num_features, 1, 1)  #通道数
+        # 参与求梯度和迭代的拉伸和偏移参数，分别初始化成0和1
+        self.gamma = nn.Parameter(torch.ones(shape))
+        self.beta = nn.Parameter(torch.zeros(shape))
+        # 不参与求梯度和迭代的变量，全在内存上初始化成0
+        self.moving_mean = torch.zeros(shape)
+        self.moving_var = torch.zeros(shape)
+	#参数的更新，直接调用了上面的batch_norm函数一起使用
+    def forward(self, X):
+        # 如果X不在内存上，将moving_mean和moving_var复制到X所在显存上
+        if self.moving_mean.device != X.device:
+            self.moving_mean = self.moving_mean.to(X.device)
+            self.moving_var = self.moving_var.to(X.device)
+        # 保存更新过的moving_mean和moving_var, Module实例的traning属性默认为true, 调用.eval()后设成false
+        Y, self.moving_mean, self.moving_var = batch_norm(self.training, 
+            X, self.gamma, self.beta, self.moving_mean,
+            self.moving_var, eps=1e-5, momentum=0.9)
+        return Y
+
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+应用到LeNet
+
+net = nn.Sequential(
+            nn.Conv2d(1, 6, 5), # in_channels, out_channels, kernel_size
+            BatchNorm(6, num_dims=4),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2), # kernel_size, stride
+            nn.Conv2d(6, 16, 5),
+            BatchNorm(16, num_dims=4),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2),
+            d2l.FlattenLayer(),
+            nn.Linear(16*4*4, 120),
+            BatchNorm(120, num_dims=2),
+            nn.Sigmoid(),
+            nn.Linear(120, 84),
+            BatchNorm(84, num_dims=2),
+            nn.Sigmoid(),
+            nn.Linear(84, 10)
+        )
+print(net)
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+Pytorch版本直接实现：
+不需要自己去写函数，BatchNorm2d代表输入维度是4，BatchNorm1d代表输入维度是2
+
+net = nn.Sequential(
+            nn.Conv2d(1, 6, 5), # in_channels, out_channels, kernel_size
+            nn.BatchNorm2d(6),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2), # kernel_size, stride
+            nn.Conv2d(6, 16, 5),
+            nn.BatchNorm2d(16),
+            nn.Sigmoid(),
+            nn.MaxPool2d(2, 2),
+            d2l.FlattenLayer(),
+            nn.Linear(16*4*4, 120),
+            nn.BatchNorm1d(120),
+            nn.Sigmoid(),
+            nn.Linear(120, 84),
+            nn.BatchNorm1d(84),
+            nn.Sigmoid(),
+            nn.Linear(84, 10)
+        )
+
+optimizer = torch.optim.Adam(net.parameters(), lr=lr)
+d2l.train_ch5(net, train_iter, test_iter, batch_size, optimizer, device, num_epochs)
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+残差网络ResNet
+深度学习把层数加深不是万能的，即使我们已经加入了BN方法，让数据更加稳定一点，但是层数一直加深，带来的不是性能变强，反而会招致网络收敛变得更慢，准确率也变得更差。
+
+网络退化现象degradation
+假设存在一个最优化的网络结构，例如10层，但是我们并不知道具体到哪个层次的网络才是最优的，如果我们设计了一个18层的结构，那么后面的8层都是冗余的，我们希望模型可以在训练中把多出来的层数进行恒等映射，即经过这层时的输入与输出完全相同. 但是模型是很难把多出来的8层的恒等变换参数学习正确，导致模型退化，不过这个不是过拟合产生的，训练的loss是增加的，所以这是因为网络冗余无法正确学习恒等映射参数而导致的.
+
+从信息论的角度讲，由于DPI（数据处理不等式）的存在，在前向传输的过程中，随着层数的加深，Feature Map包含的图像信息会逐层减少，而ResNet的直接映射的加入，保证了l+1l+1l+1层的网络一定比 lll层包含更多的图像信息。
+
+
+虚线框里面的就是残差块，里面放上什么网络都可以，例如全连接网络、CNN等，因为ResNet是在ImageNet比赛中获得成功的，所以我们多用于处理图像，所以通常也是放CNN进去. 加权运算就是对卷积核的运算。 这幅图可能让人理解还不够深刻，结合下面的解释可能会理解更深：
+
+一个残差块可以用这个公式表示：
+xl+1=xl+F(xl,Wl)x_{l+1}=x_l + F(x_l,W_l)
+x 
+l+1
+​	
+ =x 
+l
+​	
+ +F(x 
+l
+​	
+ ,W 
+l
+​	
+ )
+
+左边一条直线下来的，是直接映射部分，h(xl)h(x_l)h(x 
+l
+​	
+ )；右边是F(xl,Wl)F(x_l,W_l)F(x 
+l
+​	
+ ,W 
+l
+​	
+ )残差部分，一般由2至3个卷积操作组成
+weight指的是卷积操作，addition指单位加操作.
+
+因为卷积网络中，可能xlx_lx 
+l
+​	
+ 和xl+1x_{l+1}x 
+l+1
+​	
+ 的feature map数量不同，这时候需要1x1的卷积操作来进行维度的变化：
+xl+1=h(xl)+F(xl,Wl)h(xl)=Wlx(Wl为1x1卷积操作)x_{l+1}=h(x_l) + F(x_l,W_l) \\ h(x_l) = W_l x (W_l为1x1卷积操作)
+x 
+l+1
+​	
+ =h(x 
+l
+​	
+ )+F(x 
+l
+​	
+ ,W 
+l
+​	
+ )
+h(x 
+l
+​	
+ )=W 
+l
+​	
+ x(W 
+l
+​	
+ 为1x1卷积操作)
+
+网络结构上去分析
+普通网络结构：
+
+残差网络结构：
+
+把普通网络变成ResNet的方法是加上所有跳跃连接，每两层增加一个shortcut，构成一个残差块。如图所示，5个残差块连接在一起构成一个残差网络
+
+代码实现就不放了，不过可以说一下设计思路：
+
+设计残差块，其实就是我们平时使用的网络层，堆积两个卷积层，最后加上一个forward层计算输入x和残差F的和
+设计残差网络，先设计输入层，卷积+正则化+激活函数+maxpooling，判断是否第一个模块，第一个模块的输入和输出是相同的，判断是不是第一个残差块，需要修改残差块增加做1x1卷积来通道变换，后面就是调用残差块
+累加残差块形成残差网络
+残差块的定义
+在统计学中，残差和误差是非常容易混淆的两个概念。误差是衡量观测值和真实值之间的差距，残差是指预测值和观测值之间的差距。对于残差网络的命名原因，作者给出的解释是，网络的一层通常可以看做 y=H(x)y=H(x)y=H(x) , 而残差网络的一个残差块可以表示为 H(x)=F(x)+xH(x)=F(x)+xH(x)=F(x)+x，也就是 [公式] ，在单位映射中， F(x)=H(x)−xF(x)=H(x)-xF(x)=H(x)−x 便是观测值，而 y=xy=xy=x 是预测值，所以H(x)H(x)H(x) 便对应着残差，因此叫做残差网络。
+
+残差网络解决的问题
+如何解决梯度消失？
+
+上面这样图完美解释了为什么可以保证该节点不会出现梯度消失或爆炸，因为做完链式求导之后，无论对xlx_lx 
+l
+​	
+ 求导有多小，旁边都有1加上，并且将原来的链式求导中的连乘变成了连加状态
+
+解决网络退化问题
+我们知道比起学习h(x)=x，我们令h(x)=F(x)+x，然后学习F(x)=0会更加简单，F(x)是残差项，因为一般每层网络中的参数初始化偏向于0，这样在相比于更新该网络层的参数来学习h(x)=x，该冗余层学习F(x)=0的更新参数能够更快收敛.
+
+留一点问题给自己：
+F(x)也算是经过网络学习出来的一种参数，我们目的是为了恒等映射，所以想让它变成0，但是如果放在网络的前面，不会造成什么都没学习到吗？只是变成输入的直接映射？网络是如何去分辨是否到了冗余层？有很多没懂的地方~
+
+参考文章：
+https://zhuanlan.zhihu.com/p/42706477
+https://www.cnblogs.com/gczr/p/10127723.html
+
+稠密连接网络DenseNet
+主要构建模块：
+稠密块（dense block）： 定义了输入和输出是如何连结的。
+过渡层（transition layer）：用来控制通道数，使之不过大。
+
+区别：使用了concat通道数的方式，不需要A和B的输入输出维度相同
